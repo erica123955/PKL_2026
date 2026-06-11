@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block page_title %}Analisis Decision Tree ID3{% endblock %}
+{% block page_sub %}Information Gain, Entropy, dan Rule Extraction – Bulan {{ month }}{% endblock %}
+
+{% block content %}
+
+<!-- MONTH TABS -->
+<div class="month-tabs">
+  <a href="{{ url_for('analisis', bulan='NOV') }}" class="tab-btn {% if month == 'NOV' %}active{% endif %}">NOV 2025</a>
+  <a href="{{ url_for('analisis', bulan='DES') }}" class="tab-btn {% if month == 'DES' %}active{% endif %}">DES 2025</a>
+  <a href="{{ url_for('analisis', bulan='JAN') }}" class="tab-btn {% if month == 'JAN' %}active{% endif %}">JAN 2026</a>
+</div>
+
+<!-- STAT CARDS -->
+<div class="stat-grid">
+  <div class="stat-card blue">
+    <div class="stat-label">Total Data Training</div>
+    <div class="stat-value">{{ "{:,}".format(total) }}</div>
+    <div class="stat-sub">debitur – bulan {{ month }}</div>
+  </div>
+  <div class="stat-card hijau">
+    <div class="stat-label">EWS Hijau (Aman)</div>
+    <div class="stat-value">{{ "{:,}".format(distribution.get('HIJAU', 0)) }}</div>
+    <div class="stat-sub">{{ "%.1f"|format(distribution.get('HIJAU',0)/total*100) }}% dari total</div>
+  </div>
+  <div class="stat-card kuning">
+    <div class="stat-label">EWS Kuning (Waspada)</div>
+    <div class="stat-value">{{ "{:,}".format(distribution.get('KUNING', 0)) }}</div>
+    <div class="stat-sub">{{ "%.1f"|format(distribution.get('KUNING',0)/total*100) }}% dari total</div>
+  </div>
+  <div class="stat-card merah">
+    <div class="stat-label">EWS Merah (Kritis)</div>
+    <div class="stat-value">{{ "{:,}".format(distribution.get('MERAH', 0)) }}</div>
+    <div class="stat-sub">{{ "%.1f"|format(distribution.get('MERAH',0)/total*100) }}% dari total</div>
+  </div>
+</div>
+
+<div class="grid-2">
+  <!-- ENTROPY & METRICS -->
+  <div class="card">
+    <div class="card-title">🔢 Metrik Pohon Keputusan</div>
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          <tr><td>Entropy Dataset</td><td><strong>{{ base_entropy }}</strong></td></tr>
+          <tr><td>Akurasi Model</td><td><strong style="color:var(--btn-blue)">{{ accuracy }}%</strong></td></tr>
+          <tr><td>Jumlah Simpul (Node)</td><td><strong>{{ nodes }}</strong></td></tr>
+          <tr><td>Kedalaman Pohon</td><td><strong>{{ depth }}</strong></td></tr>
+          <tr><td>Fitur Terbaik (Root)</td><td><strong style="color:var(--btn-blue)">{{ feature_labels.get(best_feature, best_feature) }}</strong></td></tr>
+          <tr><td>Fitur Input</td><td><strong>{{ ig_values|length }}</strong></td></tr>
+          <tr><td>Kelas Target</td><td>HIJAU · KUNING · MERAH</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- DISTRIBUSI CHART -->
+  <div class="card">
+    <div class="card-title">📊 Distribusi Kelas EWS</div>
+    <div class="chart-box"><canvas id="chartPie"></canvas></div>
+  </div>
+</div>
+
+<!-- INFORMATION GAIN TABLE -->
+<div class="card" style="margin-bottom:20px">
+  <div class="card-title">📐 Information Gain per Fitur (Algoritma ID3)</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Fitur</th>
+          <th>Nama Kolom</th>
+          <th>Information Gain</th>
+          <th>Visualisasi</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set max_ig = ig_values.values()|max %}
+        {% for feat, val in ig_values|dictsort(by='value', reverse=True) %}
+        <tr>
+          <td><strong>{{ feat }}</strong></td>
+          <td>{{ feature_labels.get(feat, feat) }}</td>
+          <td><strong>{{ val }}</strong></td>
+          <td>
+            <div class="ig-bar-wrap">
+              <div class="ig-bar" style="width:{{ (val/max_ig*200)|int }}px;max-width:200px"></div>
+              <span class="ig-val">{{ "%.4f"|format(val) }}</span>
+            </div>
+          </td>
+          <td>
+            {% if feat == best_feature %}
+              <span class="badge badge-hijau">🏆 ROOT NODE</span>
+            {% else %}
+              <span class="badge badge-blue">Fitur Aktif</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="grid-2">
+  <!-- IG CHART -->
+  <div class="card">
+    <div class="card-title">📈 Chart Information Gain</div>
+    <div class="chart-box"><canvas id="chartIG"></canvas></div>
+  </div>
+
+  <!-- RULES -->
+  <div class="card">
+    <div class="card-title">📜 Sample Rule yang Dihasilkan ID3 (20 pertama)</div>
+    <div style="max-height:300px;overflow-y:auto">
+      {% for rule in rules %}
+      <div class="rule-item">
+        <div class="rule-cond">
+          {% for c in rule.conditions %}<span>IF {{ c }}</span>{% if not loop.last %} AND {% endif %}{% endfor %}
+        </div>
+        <div class="rule-then {{ rule.result }}">→ THEN EWS = {{ rule.result }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Pie
+new Chart(document.getElementById('chartPie'), {
+  type: 'doughnut',
+  data: {
+    labels: ['HIJAU', 'KUNING', 'MERAH'],
+    datasets: [{
+      data: [
+        {{ distribution.get('HIJAU', 0) }},
+        {{ distribution.get('KUNING', 0) }},
+        {{ distribution.get('MERAH', 0) }}
+      ],
+      backgroundColor: ['#16A34A','#D97706','#DC2626'],
+      borderWidth: 2,
+    }]
+  },
+  options: { responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { position: 'bottom' } }
+  }
+});
+
+// IG chart
+const igLabels = [{% for f,v in ig_values|dictsort(by='value', reverse=True) %}"{{ feature_labels.get(f, f) }}"{% if not loop.last %},{% endif %}{% endfor %}];
+const igVals   = [{% for f,v in ig_values|dictsort(by='value', reverse=True) %}{{ v }}{% if not loop.last %},{% endif %}{% endfor %}];
+
+new Chart(document.getElementById('chartIG'), {
+  type: 'bar',
+  data: {
+    labels: igLabels,
+    datasets: [{
+      label: 'Information Gain',
+      data: igVals,
+      backgroundColor: '#0033A0',
+      borderRadius: 6,
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+  }
+});
+</script>
+{% endblock %}
